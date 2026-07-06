@@ -1,0 +1,27 @@
+services:
+  app:
+    build: .
+    image: ghcr.io/nishadil/mailika:local
+    env_file: .env
+    depends_on:
+      - postgres
+      - redis
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./storage:/var/www/html/storage
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: mailika
+      POSTGRES_USER: mailika
+      POSTGRES_PASSWORD: change-me
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+
+volumes:
+  postgres-data:

@@ -1,0 +1,1 @@
+[2026-07-06T07:01:54.099463+00:00] audit.INFO: login.success {"mailbox":"user@example.com","ip":"127.0.0.1","user_agent":"curl/8.5.0"} []

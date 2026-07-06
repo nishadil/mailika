@@ -1,0 +1,65 @@
+{
+  "name": "nishadil/mailika",
+  "description": "Mailika is a secure, frameworkless PHP webmail client for existing IMAP and SMTP servers.",
+  "type": "project",
+  "license": "GPL-3.0-only",
+  "homepage": "https://mailika.com",
+  "support": {
+    "email": "opensource@nishadil.dev",
+    "issues": "https://github.com/nishadil/mailika/issues",
+    "source": "https://github.com/nishadil/mailika"
+  },
+  "require": {
+    "php": "^8.3",
+    "ext-ctype": "*",
+    "ext-dom": "*",
+    "ext-filter": "*",
+    "ext-json": "*",
+    "ext-mbstring": "*",
+    "ext-openssl": "*",
+    "ext-pdo": "*",
+    "ext-sodium": "*",
+    "ezyang/htmlpurifier": "^4.17",
+    "monolog/monolog": "^3.0",
+    "psr/log": "^3.0",
+    "symfony/mailer": "^7.0",
+    "symfony/mime": "^7.0",
+    "vlucas/phpdotenv": "^5.6"
+  },
+  "require-dev": {
+    "phpstan/phpstan": "^2.0",
+    "phpunit/phpunit": "^11.0",
+    "squizlabs/php_codesniffer": "^3.10"
+  },
+  "suggest": {
+    "ext-imap": "Required by the built-in PhpImapMailboxClient adapter for production IMAP connectivity.",
+    "ext-pdo_pgsql": "Recommended production database driver.",
+    "ext-redis": "Recommended for shared cache, rate limits, and session storage in multi-node deployments."
+  },
+  "autoload": {
+    "psr-4": {
+      "Mailika\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Mailika\\Tests\\": "tests/"
+    }
+  },
+  "scripts": {
+    "test": "phpunit",
+    "analyse": "phpstan analyse --memory-limit=1G",
+    "cs": "phpcs",
+    "check": [
+      "@cs",
+      "@analyse",
+      "@test"
+    ]
+  },
+  "config": {
+    "allow-plugins": {},
+    "sort-packages": true
+  },
+  "minimum-stability": "stable",
+  "prefer-stable": true
+}

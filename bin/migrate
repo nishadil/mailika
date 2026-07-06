@@ -1,0 +1,32 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use Dotenv\Dotenv;
+use Mailika\Config\Config;
+use Mailika\Database\Connection;
+
+define('MAILIKA_ROOT', dirname(__DIR__));
+
+require MAILIKA_ROOT . '/vendor/autoload.php';
+
+if (is_file(MAILIKA_ROOT . '/.env')) {
+    Dotenv::createImmutable(MAILIKA_ROOT)->safeLoad();
+}
+
+$config = Config::fromEnvironment(MAILIKA_ROOT);
+$pdo = (new Connection($config))->pdo();
+$migrations = glob(MAILIKA_ROOT . '/database/migrations/*.sql') ?: [];
+sort($migrations);
+
+foreach ($migrations as $migration) {
+    $sql = file_get_contents($migration);
+    if ($sql === false) {
+        fwrite(STDERR, 'Unable to read migration: ' . $migration . PHP_EOL);
+        exit(1);
+    }
+
+    $pdo->exec($sql);
+    fwrite(STDOUT, 'Applied ' . basename($migration) . PHP_EOL);
+}

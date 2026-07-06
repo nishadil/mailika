@@ -1,0 +1,12 @@
+/.env
+/.phpunit.cache
+/.vite
+/coverage
+/node_modules
+/public/build
+/storage/cache/*
+/storage/logs/*
+/storage/sessions/*
+/storage/uploads/*
+/vendor
+!.gitkeep

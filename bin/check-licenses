@@ -1,0 +1,163 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+define('MAILIKA_ROOT', dirname(__DIR__));
+
+$allowed = [
+    '0BSD',
+    'AGPL-3.0-only',
+    'AGPL-3.0-or-later',
+    'Apache-2.0',
+    'BSD-2-Clause',
+    'BSD-3-Clause',
+    'BlueOak-1.0.0',
+    'CC0-1.0',
+    'GPL-2.0-only',
+    'GPL-2.0-or-later',
+    'GPL-3.0-only',
+    'GPL-3.0-or-later',
+    'ISC',
+    'LGPL-2.1-only',
+    'LGPL-2.1-or-later',
+    'LGPL-3.0-only',
+    'LGPL-3.0-or-later',
+    'MIT',
+    'MPL-2.0',
+    'Python-2.0',
+    'Unlicense',
+];
+
+$violations = [];
+checkComposerLicenses($allowed, $violations);
+checkNpmLicenses($allowed, $violations);
+
+if ($violations !== []) {
+    fwrite(STDERR, "License check failed:\n");
+    foreach ($violations as $violation) {
+        fwrite(STDERR, ' - ' . $violation . "\n");
+    }
+    exit(1);
+}
+
+fwrite(STDOUT, "License check passed.\n");
+
+/**
+ * @param list<string> $allowed
+ * @param list<string> $violations
+ */
+function checkComposerLicenses(array $allowed, array &$violations): void
+{
+    $lock = readJson(MAILIKA_ROOT . '/composer.lock');
+    foreach (array_merge($lock['packages'] ?? [], $lock['packages-dev'] ?? []) as $package) {
+        if (!is_array($package)) {
+            continue;
+        }
+
+        $name = packageName($package);
+        $licenses = $package['license'] ?? [];
+        if (!is_array($licenses) || $licenses === []) {
+            $violations[] = 'composer package ' . $name . ' has no license metadata';
+            continue;
+        }
+
+        $accepted = false;
+        foreach ($licenses as $license) {
+            if (is_string($license) && licenseAllowed($license, $allowed)) {
+                $accepted = true;
+                break;
+            }
+        }
+
+        if (!$accepted) {
+            $violations[] = 'composer package ' . $name . ' has disallowed license '
+                . implode(', ', array_map('strval', $licenses));
+        }
+    }
+}
+
+/**
+ * @param list<string> $allowed
+ * @param list<string> $violations
+ */
+function checkNpmLicenses(array $allowed, array &$violations): void
+{
+    $lock = readJson(MAILIKA_ROOT . '/package-lock.json');
+    $packages = $lock['packages'] ?? [];
+    if (!is_array($packages)) {
+        return;
+    }
+
+    foreach ($packages as $path => $package) {
+        if ($path === '' || !is_array($package)) {
+            continue;
+        }
+
+        $license = $package['license'] ?? null;
+        if (!is_string($license) || $license === '') {
+            $violations[] = 'npm package ' . $path . ' has no license metadata';
+            continue;
+        }
+
+        if (!licenseAllowed($license, $allowed)) {
+            $violations[] = 'npm package ' . $path . ' has disallowed license ' . $license;
+        }
+    }
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function readJson(string $path): array
+{
+    $content = file_get_contents($path);
+    if ($content === false) {
+        fwrite(STDERR, 'Unable to read ' . $path . "\n");
+        exit(1);
+    }
+
+    $data = json_decode($content, true);
+    if (!is_array($data)) {
+        fwrite(STDERR, 'Unable to parse ' . $path . "\n");
+        exit(1);
+    }
+
+    return $data;
+}
+
+/**
+ * @param array<string, mixed> $package
+ */
+function packageName(array $package): string
+{
+    $name = $package['name'] ?? 'unknown';
+    return is_string($name) && $name !== '' ? $name : 'unknown';
+}
+
+/**
+ * @param list<string> $allowed
+ */
+function licenseAllowed(string $expression, array $allowed): bool
+{
+    $expression = str_replace(['(', ')'], '', $expression);
+    $orParts = preg_split('/\s+(?:OR|\|\|)\s+/i', $expression) ?: [];
+
+    foreach ($orParts as $orPart) {
+        $andParts = preg_split('/\s+(?:AND|&&)\s+/i', trim($orPart)) ?: [];
+        $allAllowed = true;
+        foreach ($andParts as $license) {
+            $license = trim($license);
+            if ($license === '' || !in_array($license, $allowed, true)) {
+                $allAllowed = false;
+                break;
+            }
+        }
+
+        if ($allAllowed) {
+            return true;
+        }
+    }
+
+    return false;
+}

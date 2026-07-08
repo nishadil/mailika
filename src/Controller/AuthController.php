@@ -6,6 +6,7 @@ namespace Mailika\Controller;
 
 use Mailika\Audit\AuditLogger;
 use Mailika\Auth\CredentialVault;
+use Mailika\Auth\LoginPrefillStore;
 use Mailika\Auth\MailboxCredentials;
 use Mailika\Config\Config;
 use Mailika\Http\Request;
@@ -28,6 +29,7 @@ final readonly class AuthController
         private MailboxClientInterface $mailboxClient,
         private RateLimiter $rateLimiter,
         private AuditLogger $audit,
+        private LoginPrefillStore $loginPrefill,
     ) {
     }
 
@@ -41,17 +43,18 @@ final readonly class AuthController
             'title' => 'Sign in',
             'csrfToken' => $this->csrf->token(),
             'error' => null,
-            'defaults' => $this->defaults(),
+            'defaults' => $this->defaults($this->loginPrefill->pull()),
         ]));
     }
 
     public function login(Request $request): Response
     {
         if (!$this->csrf->validate($request->input('_csrf'))) {
-            return $this->loginError('Your session token expired. Please try again.');
+            return $this->loginError('Your session token expired. Please try again.', $request);
         }
 
-        $rateKey = 'login|' . $request->ip() . '|' . strtolower($request->input('email'));
+        $email = Validator::normalizeEmail($request->input('email'));
+        $rateKey = 'login|' . $request->ip() . '|' . strtolower($email);
         $loginAllowed = $this->rateLimiter->allow(
             $rateKey,
             $this->config->int('rate_limit.login_attempts', 8),
@@ -60,30 +63,47 @@ final readonly class AuthController
 
         if (!$loginAllowed) {
             $this->audit->record('login.rate_limited', ['ip' => $request->ip()]);
-            return $this->loginError('Too many sign-in attempts. Wait a few minutes and try again.');
+            return $this->loginError('Too many sign-in attempts. Wait a few minutes and try again.', $request);
+        }
+
+        $smtpSecurity = $this->smtpSecurityMode($request->input('smtp_tls', 'starttls'));
+        if ($smtpSecurity === null) {
+            return $this->loginError('Choose STARTTLS, SMTPS, or None for SMTP security.', $request);
         }
 
         $credentials = new MailboxCredentials(
-            strtolower($request->input('email')),
+            $email,
             $request->input('password'),
             strtolower($request->input('imap_host')),
             $request->intInput('imap_port', 993),
             $request->input('imap_tls', '1') === '1',
             strtolower($request->input('smtp_host')),
             $request->intInput('smtp_port', 587),
-            $request->input('smtp_tls', 'starttls'),
+            $smtpSecurity,
         );
 
         if (!Validator::email($credentials->email)) {
-            return $this->loginError('Enter a valid mailbox email address.');
+            return $this->loginError('Enter a valid mailbox email address.', $request);
+        }
+
+        if (!Validator::tcpPort($credentials->imapPort) || !Validator::tcpPort($credentials->smtpPort)) {
+            return $this->loginError('Enter valid IMAP and SMTP ports.', $request);
         }
 
         if (!Validator::hostAllowed($credentials->imapHost, $this->config->stringList('mail.allowed_imap_hosts'))) {
-            return $this->loginError('This IMAP host is not allowed by the Mailika administrator.');
+            return $this->loginError('This IMAP host is not allowed by the Mailika administrator.', $request);
+        }
+
+        if (!Validator::hostAllowed($credentials->smtpHost, $this->config->stringList('mail.allowed_smtp_hosts'))) {
+            return $this->loginError('This SMTP host is not allowed by the Mailika administrator.', $request);
         }
 
         if ($this->config->bool('mail.require_tls', true) && !$credentials->imapTls) {
-            return $this->loginError('TLS is required for IMAP in this deployment.');
+            return $this->loginError('TLS is required for IMAP in this deployment.', $request);
+        }
+
+        if ($this->config->bool('mail.require_tls', true) && $credentials->smtpTls === 'none') {
+            return $this->loginError('TLS is required for SMTP in this deployment.', $request);
         }
 
         try {
@@ -107,13 +127,25 @@ final readonly class AuthController
                 'ip' => $request->ip(),
             ]);
 
-            return $this->loginError('Mailbox sign-in failed. Check the server, TLS, username, and password.');
+            return $this->loginError(
+                'Mailbox sign-in failed. Check the server, TLS, username, and password.',
+                $request,
+            );
         }
     }
 
     public function logout(Request $request): Response
     {
         if ($this->csrf->validate($request->input('_csrf'))) {
+            $credentials = $this->vault->current();
+            if ($credentials !== null) {
+                $this->audit->record('logout.success', [
+                    'mailbox' => $credentials->email,
+                    'ip' => $request->ip(),
+                    'user_agent' => $request->userAgent(),
+                ]);
+            }
+
             $this->vault->clear();
             SessionManager::destroy();
         }
@@ -121,28 +153,52 @@ final readonly class AuthController
         return Response::redirect('/login');
     }
 
-    private function loginError(string $message): Response
+    private function loginError(string $message, ?Request $request = null): Response
     {
         return new Response($this->view->render('auth/login', [
             'title' => 'Sign in',
             'csrfToken' => $this->csrf->token(),
             'error' => $message,
-            'defaults' => $this->defaults(),
+            'defaults' => $this->defaults($request === null ? [] : $this->defaultsFromRequest($request)),
         ]), 422);
     }
 
     /**
+     * @param array<string, mixed> $overrides
      * @return array<string, mixed>
      */
-    private function defaults(): array
+    private function defaults(array $overrides = []): array
     {
-        return [
+        return array_merge([
+            'email' => '',
             'imap_host' => $this->config->string('mail.default_imap_host'),
             'imap_port' => $this->config->int('mail.default_imap_port', 993),
             'imap_tls' => $this->config->bool('mail.default_imap_tls', true),
             'smtp_host' => $this->config->string('mail.default_smtp_host'),
             'smtp_port' => $this->config->int('mail.default_smtp_port', 587),
             'smtp_tls' => $this->config->string('mail.default_smtp_tls', 'starttls'),
+        ], $overrides);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function defaultsFromRequest(Request $request): array
+    {
+        return [
+            'email' => Validator::normalizeEmail($request->input('email')),
+            'imap_host' => strtolower($request->input('imap_host')),
+            'imap_port' => $request->intInput('imap_port', 993),
+            'imap_tls' => $request->input('imap_tls') === '1',
+            'smtp_host' => strtolower($request->input('smtp_host')),
+            'smtp_port' => $request->intInput('smtp_port', 587),
+            'smtp_tls' => $request->input('smtp_tls', 'starttls'),
         ];
+    }
+
+    private function smtpSecurityMode(string $mode): ?string
+    {
+        $mode = strtolower(trim($mode));
+        return in_array($mode, ['starttls', 'smtps', 'none'], true) ? $mode : null;
     }
 }

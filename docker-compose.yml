@@ -4,12 +4,21 @@ services:
     image: ghcr.io/nishadil/mailika:local
     env_file: .env
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     ports:
       - "8080:8080"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
     volumes:
-      - ./storage:/var/www/html/storage
+      - mailika-storage:/var/www/html/storage
 
   postgres:
     image: postgres:16-alpine
@@ -19,9 +28,47 @@ services:
       POSTGRES_PASSWORD: change-me
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mailika -d mailika"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  greenmail:
+    image: greenmail/standalone:2.1.9
+    profiles:
+      - mail-fixtures
+    environment:
+      GREENMAIL_OPTS: >-
+        -Dgreenmail.setup.test.smtp.imap
+        -Dgreenmail.hostname=0.0.0.0
+        -Dgreenmail.auth.disabled
+    ports:
+      - "3025:3025"
+      - "3143:3143"
+      - "8081:8080"
+
+  managesieve:
+    build:
+      context: .
+      dockerfile: tests/fixtures/managesieve/Dockerfile
+    profiles:
+      - sieve-fixtures
+    environment:
+      DOVECOT_TEST_EMAIL: user@example.com
+      DOVECOT_TEST_PASSWORD: secret
+    ports:
+      - "31143:143"
+      - "4190:4190"
 
 volumes:
+  mailika-storage:
   postgres-data:

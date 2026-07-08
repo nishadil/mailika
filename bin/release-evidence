@@ -1,0 +1,105 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+$root = dirname(__DIR__);
+$tag = $argv[1] ?? 'vX.Y.Z';
+$sha = gitValue($root, ['git', 'rev-parse', 'HEAD']) ?: 'TODO';
+$branch = gitValue($root, ['git', 'rev-parse', '--abbrev-ref', 'HEAD']) ?: 'TODO';
+$generatedAt = gmdate('Y-m-d\TH:i:s\Z');
+
+echo <<<MARKDOWN
+# Mailika Release Evidence
+
+| Field | Value |
+| --- | --- |
+| Release tag | {$tag} |
+| Commit SHA | {$sha} |
+| Branch | {$branch} |
+| Generated at | {$generatedAt} |
+
+## Required Evidence
+
+| Evidence | Link Or Result |
+| --- | --- |
+| CI run on `main` | TODO |
+| CodeQL run | TODO |
+| Dependency review | TODO or N/A |
+| Container scan | TODO |
+| SBOM/provenance | TODO |
+| Migration notes | TODO |
+| Threat model review | TODO |
+| Data handling review | TODO |
+| Accessibility review | TODO |
+| Changelog section | TODO |
+| Compatibility matrix | TODO |
+| Backup/restore validation | TODO |
+| External mail fixture or provider compatibility | TODO |
+| External Sieve compatibility | TODO or N/A |
+| Residual risks | None, or TODO with owner and issue |
+
+## Local Gates
+
+- [ ] `composer check`
+- [ ] `npm run check`
+- [ ] `docker compose config --quiet`
+- [ ] GitHub Actions workflow hardening and release-gate inventory covered by `composer check`
+- [ ] Release metadata inventory covered by `composer check`
+- [ ] `composer validate-release-evidence -- release-evidence-{$tag}.md`
+- [ ] Optional `composer fixtures:check -- mail`
+- [ ] Optional `composer test:external-mail`
+- [ ] Optional `composer fixtures:check -- sieve`
+- [ ] Optional `composer test:external-sieve`
+- [ ] Review `docs/DATA_HANDLING.md`
+- [ ] Review `docs/ACCESSIBILITY.md`
+- [ ] Update `docs/COMPATIBILITY.md`
+
+## Upgrade And Restore
+
+- [ ] Backup created before upgrade.
+- [ ] `php bin/upgrade` passed on release candidate.
+- [ ] `/readyz` passed after upgrade.
+- [ ] `/metrics` checked for low-cardinality non-secret output.
+- [ ] Real mailbox login, read, compose/send, attachment download, settings, contacts, filters, and logout checked.
+- [ ] Backup restored into disposable database.
+- [ ] `php bin/upgrade` passed against restored schema.
+
+## Release Notes
+
+- User-facing changes:
+  - TODO
+- Security changes:
+  - TODO
+- Migration or operator notes:
+  - TODO
+- Deferred or known limitations:
+  - TODO
+
+MARKDOWN;
+
+/**
+ * @param list<string> $command
+ */
+function gitValue(string $root, array $command): string
+{
+    $descriptorSpec = [
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ];
+    $process = proc_open($command, $descriptorSpec, $pipes, $root);
+    if (!is_resource($process)) {
+        return '';
+    }
+
+    $output = stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+
+    $code = proc_close($process);
+    if ($code !== 0 || !is_string($output)) {
+        return '';
+    }
+
+    return trim($output);
+}

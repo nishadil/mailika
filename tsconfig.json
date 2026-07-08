@@ -15,5 +15,5 @@
     "isolatedModules": true,
     "noEmit": true
   },
-  "include": ["assets/ts/**/*.ts", "vite.config.ts"]
+  "include": ["assets/ts/**/*.ts", "tests/e2e/**/*.ts", "vite.config.ts", "playwright.config.ts"]
 }

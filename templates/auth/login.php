@@ -21,7 +21,14 @@
 
       <label>
         <span>Email address</span>
-        <input type="email" name="email" autocomplete="username" required maxlength="320">
+        <input
+          type="email"
+          name="email"
+          autocomplete="username"
+          value="<?= $view->escape($defaults['email'] ?? '') ?>"
+          required
+          maxlength="320"
+        >
       </label>
 
       <label>

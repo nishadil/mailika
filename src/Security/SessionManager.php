@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Mailika\Security;
 
 use Mailika\Config\Config;
+use RuntimeException;
 
 final readonly class SessionManager
 {
@@ -19,7 +20,14 @@ final readonly class SessionManager
         }
 
         $sessionPath = $this->config->rootPath('storage/sessions');
-        if (is_dir($sessionPath)) {
+        if ($this->config->string('session.driver') === 'redis') {
+            if (!extension_loaded('redis')) {
+                throw new RuntimeException('Redis session driver requires the ext-redis PHP extension.');
+            }
+
+            ini_set('session.save_handler', 'redis');
+            ini_set('session.save_path', $this->config->string('redis.session_dsn'));
+        } elseif (is_dir($sessionPath)) {
             session_save_path($sessionPath);
         }
 

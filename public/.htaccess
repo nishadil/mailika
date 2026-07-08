@@ -1,0 +1,11 @@
+Options -Indexes
+ServerSignature Off
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^(?:storage|vendor|src|templates|tests|database|config|docs|bin)(?:/|$) - [F,L]
+</IfModule>
+
+<FilesMatch "(^\.|\.log$|\.env$|composer\.(json|lock)$|package(-lock)?\.json$)">
+    Require all denied
+</FilesMatch>

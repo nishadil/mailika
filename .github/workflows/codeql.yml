@@ -2,7 +2,7 @@ name: CodeQL
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "development"]
   pull_request:
   schedule:
     - cron: "33 3 * * 1"
@@ -11,9 +11,14 @@ permissions:
   contents: read
   security-events: write
 
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   analyze:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:

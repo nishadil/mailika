@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: mailto:opensource@nishadil.dev
+    about: Report suspected vulnerabilities privately by email instead of opening a public issue.
+  - name: Mailika website
+    url: https://mailika.com
+    about: Visit the official Mailika website.

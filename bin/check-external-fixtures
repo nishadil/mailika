@@ -1,0 +1,142 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+define('MAILIKA_ROOT', dirname(__DIR__));
+
+$target = $argv[1] ?? 'all';
+if (in_array($target, ['-h', '--help'], true)) {
+    fwrite(STDOUT, "Usage: php bin/check-external-fixtures [mail|sieve|all]\n");
+    exit(0);
+}
+
+if (!in_array($target, ['mail', 'sieve', 'all'], true)) {
+    fwrite(STDERR, "Unknown fixture target: {$target}\n");
+    fwrite(STDERR, "Usage: php bin/check-external-fixtures [mail|sieve|all]\n");
+    exit(2);
+}
+
+$portViolations = [];
+
+if ($target === 'mail' || $target === 'all') {
+    checkTcpPort(
+        envString('MAILIKA_TEST_MAIL_HOST', '127.0.0.1'),
+        envInt('MAILIKA_TEST_SMTP_PORT', 3025),
+        'GreenMail SMTP',
+        $portViolations,
+    );
+    checkTcpPort(
+        envString('MAILIKA_TEST_MAIL_HOST', '127.0.0.1'),
+        envInt('MAILIKA_TEST_IMAP_PORT', 3143),
+        'GreenMail IMAP',
+        $portViolations,
+    );
+}
+
+if ($target === 'sieve' || $target === 'all') {
+    checkTcpPort(
+        envString('MAILIKA_TEST_SIEVE_HOST', '127.0.0.1'),
+        envInt('MAILIKA_TEST_SIEVE_PORT', 4190),
+        'ManageSieve',
+        $portViolations,
+    );
+}
+
+$violations = $portViolations;
+if ($portViolations !== []) {
+    requireCommand(['docker', '--version'], 'Docker CLI is not available', $violations);
+    requireCommand(['docker', 'compose', 'version'], 'Docker Compose plugin is not available', $violations);
+    requireCommand(['docker', 'compose', 'config', '--quiet'], 'docker-compose.yml is not valid', $violations);
+    requireCommand(['docker', 'info', '--format', '{{.ServerVersion}}'], 'Docker daemon is not reachable', $violations);
+}
+
+if ($violations !== []) {
+    fwrite(STDERR, "External fixture readiness check failed:\n");
+    foreach ($violations as $violation) {
+        fwrite(STDERR, ' - ' . $violation . "\n");
+    }
+    exit(1);
+}
+
+fwrite(STDOUT, "External fixture readiness check passed for {$target}.\n");
+
+/**
+ * @param list<string> $command
+ * @param list<string> $violations
+ */
+function requireCommand(array $command, string $failure, array &$violations): void
+{
+    $result = runCommand($command);
+    if ($result['code'] === 0) {
+        return;
+    }
+
+    $detail = trim($result['stderr'] !== '' ? $result['stderr'] : $result['stdout']);
+    $violations[] = $detail === '' ? $failure : $failure . ': ' . oneLine($detail);
+}
+
+/**
+ * @param list<string> $command
+ * @return array{code: int, stdout: string, stderr: string}
+ */
+function runCommand(array $command): array
+{
+    $process = proc_open(
+        $command,
+        [
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ],
+        $pipes,
+        MAILIKA_ROOT,
+    );
+
+    if (!is_resource($process)) {
+        return ['code' => 1, 'stdout' => '', 'stderr' => 'unable to start process'];
+    }
+
+    $stdout = stream_get_contents($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+
+    return [
+        'code' => proc_close($process),
+        'stdout' => is_string($stdout) ? $stdout : '',
+        'stderr' => is_string($stderr) ? $stderr : '',
+    ];
+}
+
+/**
+ * @param list<string> $violations
+ */
+function checkTcpPort(string $host, int $port, string $label, array &$violations): void
+{
+    $socket = @fsockopen($host, $port, $errno, $error, 1.0);
+    if ($socket === false) {
+        $reason = $error !== '' ? $error : 'connection refused';
+        $violations[] = "{$label} is not reachable at {$host}:{$port} ({$reason})";
+        return;
+    }
+
+    fclose($socket);
+}
+
+function envString(string $key, string $default): string
+{
+    $value = getenv($key);
+    return is_string($value) && $value !== '' ? $value : $default;
+}
+
+function envInt(string $key, int $default): int
+{
+    $value = getenv($key);
+    return is_string($value) && is_numeric($value) ? (int) $value : $default;
+}
+
+function oneLine(string $value): string
+{
+    $line = preg_replace('/\s+/', ' ', $value);
+    return is_string($line) ? trim($line) : trim($value);
+}

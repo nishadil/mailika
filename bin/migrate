@@ -17,16 +17,48 @@ if (is_file(MAILIKA_ROOT . '/.env')) {
 
 $config = Config::fromEnvironment(MAILIKA_ROOT);
 $pdo = (new Connection($config))->pdo();
+$pdo->exec(
+    'CREATE TABLE IF NOT EXISTS schema_migrations (
+        migration VARCHAR(255) PRIMARY KEY,
+        applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )',
+);
+
+$applied = [];
+$statement = $pdo->query('SELECT migration FROM schema_migrations');
+if ($statement !== false) {
+    foreach ($statement->fetchAll(PDO::FETCH_COLUMN) as $migration) {
+        $applied[(string) $migration] = true;
+    }
+}
+
 $migrations = glob(MAILIKA_ROOT . '/database/migrations/*.sql') ?: [];
 sort($migrations);
 
 foreach ($migrations as $migration) {
+    $name = basename($migration);
+    if (isset($applied[$name])) {
+        fwrite(STDOUT, 'Skipped ' . $name . PHP_EOL);
+        continue;
+    }
+
     $sql = file_get_contents($migration);
     if ($sql === false) {
         fwrite(STDERR, 'Unable to read migration: ' . $migration . PHP_EOL);
         exit(1);
     }
 
-    $pdo->exec($sql);
-    fwrite(STDOUT, 'Applied ' . basename($migration) . PHP_EOL);
+    $pdo->beginTransaction();
+    try {
+        $pdo->exec($sql);
+        $insert = $pdo->prepare('INSERT INTO schema_migrations (migration) VALUES (:migration)');
+        $insert->execute(['migration' => $name]);
+        $pdo->commit();
+    } catch (Throwable $exception) {
+        $pdo->rollBack();
+        fwrite(STDERR, 'Failed ' . $name . ': ' . $exception->getMessage() . PHP_EOL);
+        exit(1);
+    }
+
+    fwrite(STDOUT, 'Applied ' . $name . PHP_EOL);
 }

@@ -1,0 +1,71 @@
+name: Provider compatibility
+description: Share a reproducible IMAP/SMTP or ManageSieve compatibility result.
+title: "[Compatibility]: "
+labels: ["compatibility"]
+body:
+  - type: input
+    id: provider
+    attributes:
+      label: Provider or Server
+      description: Provider name, mail-server suite, or self-hosted stack.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Product Version
+      description: Server version or provider plan when known.
+    validations:
+      required: false
+  - type: textarea
+    id: environment
+    attributes:
+      label: Mailika Environment
+      description: Mailika version/commit, PHP version, deployment type, database, and browser.
+    validations:
+      required: true
+  - type: checkboxes
+    id: workflows
+    attributes:
+      label: Tested Workflows
+      options:
+        - label: Login with TLS-valid IMAP/SMTP
+        - label: Folder listing
+        - label: Message search
+        - label: Plain and HTML message read
+        - label: Remote image blocking
+        - label: Inline images
+        - label: Attachment download
+        - label: Compose/send
+        - label: Reply/reply-all/forward
+        - label: Draft save/send
+        - label: Move/copy/delete/archive
+        - label: Contacts autocomplete
+        - label: Settings save
+        - label: ManageSieve publish
+    validations:
+      required: true
+  - type: textarea
+    id: capabilities
+    attributes:
+      label: Server Capabilities
+      description: IMAP/SMTP/Sieve capabilities such as MOVE, SORT, THREAD, ACL, QUOTA, IDLE, SMTPUTF8, STARTTLS, or SIEVE extensions.
+    validations:
+      required: false
+  - type: dropdown
+    id: result
+    attributes:
+      label: Result
+      options:
+        - Pass
+        - Pass with caveats
+        - Fail
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes And Redacted Evidence
+      description: Include caveats, redacted logs, screenshots, or error text. Do not include passwords, APP_KEY, private message content, tokens, or private keys.
+    validations:
+      required: false

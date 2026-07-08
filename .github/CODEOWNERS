@@ -1,0 +1,19 @@
+# Mailika maintainership
+
+* @nishadil
+
+# Security and release-sensitive surfaces
+SECURITY.md @nishadil
+docs/ASVS_RELEASE_GATE.md @nishadil
+docs/RELEASE.md @nishadil
+.github/workflows/ @nishadil
+Dockerfile @nishadil
+docker-compose.yml @nishadil
+
+# Application code and schema
+src/ @nishadil
+templates/ @nishadil
+assets/ @nishadil
+database/ @nishadil
+config/ @nishadil
+tests/ @nishadil

@@ -1,0 +1,41 @@
+name: Feature request
+description: Suggest a scoped Mailika improvement.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What should Mailika support?
+    validations:
+      required: true
+  - type: textarea
+    id: workflow
+    attributes:
+      label: User Workflow
+      description: Describe the mailbox workflow this improves.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Mailbox
+        - Compose
+        - Contacts
+        - Filters
+        - Settings
+        - Security
+        - Operations
+        - Documentation
+    validations:
+      required: true
+  - type: textarea
+    id: security
+    attributes:
+      label: Security And Operations Notes
+      description: Note any credential, HTML email, attachment, TLS, migration, backup, or deployment impact.
+    validations:
+      required: false

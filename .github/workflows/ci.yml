@@ -2,29 +2,109 @@ name: CI
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "development"]
   pull_request:
 
 permissions:
   contents: read
-  security-events: write
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   php:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.4"
-          extensions: ctype, dom, filter, json, mbstring, openssl, pdo, sodium
+          extensions: ctype, dom, fileinfo, filter, iconv, json, libxml, mbstring, openssl, pdo, sodium, zip
           coverage: none
       - uses: ramsey/composer-install@v3
-      - run: composer audit
       - run: composer check
+
+  external-mail:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      greenmail:
+        image: greenmail/standalone:2.1.9
+        env:
+          GREENMAIL_OPTS: >-
+            -Dgreenmail.setup.test.smtp.imap
+            -Dgreenmail.hostname=0.0.0.0
+            -Dgreenmail.auth.disabled
+        ports:
+          - 3025:3025
+          - 3143:3143
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          extensions: ctype, dom, fileinfo, filter, iconv, json, libxml, mbstring, openssl, pdo, sodium, zip
+          coverage: none
+      - uses: ramsey/composer-install@v3
+      - name: Wait for GreenMail
+        run: |
+          php -r '
+          foreach ([3025, 3143] as $port) {
+              $deadline = time() + 60;
+              do {
+                  $socket = @fsockopen("127.0.0.1", $port, $errno, $error, 1.0);
+                  if (is_resource($socket)) {
+                      fclose($socket);
+                      continue 2;
+                  }
+                  usleep(500000);
+              } while (time() < $deadline);
+              fwrite(STDERR, "Timed out waiting for GreenMail port {$port}\n");
+              exit(1);
+          }
+          '
+      - run: composer test:external-mail
+
+  external-sieve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          extensions: ctype, dom, fileinfo, filter, iconv, json, libxml, mbstring, openssl, pdo, sodium, zip
+          coverage: none
+      - uses: ramsey/composer-install@v3
+      - name: Start ManageSieve fixture
+        run: docker compose --profile sieve-fixtures up -d managesieve
+      - name: Wait for ManageSieve
+        run: |
+          php -r '
+          foreach ([4190] as $port) {
+              $deadline = time() + 60;
+              do {
+                  $socket = @fsockopen("127.0.0.1", $port, $errno, $error, 1.0);
+                  if (is_resource($socket)) {
+                      fclose($socket);
+                      continue 2;
+                  }
+                  usleep(500000);
+              } while (time() < $deadline);
+              fwrite(STDERR, "Timed out waiting for ManageSieve port {$port}\n");
+              exit(1);
+          }
+          '
+      - run: composer test:external-sieve
+      - name: Stop ManageSieve fixture
+        if: always()
+        run: docker compose --profile sieve-fixtures down
 
   frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -32,13 +112,12 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
-      - run: npm audit --audit-level=high
-      - run: npm run typecheck
-      - run: npm run lint
-      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run check
 
   container:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3

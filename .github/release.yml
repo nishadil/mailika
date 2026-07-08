@@ -1,0 +1,29 @@
+changelog:
+  exclude:
+    labels:
+      - duplicate
+      - invalid
+      - question
+      - wontfix
+  categories:
+    - title: Security
+      labels:
+        - security
+    - title: Mailbox And Compose
+      labels:
+        - mailbox
+        - compose
+        - contacts
+        - filters
+    - title: Operations
+      labels:
+        - operations
+        - docker
+        - ci
+        - dependencies
+    - title: Documentation
+      labels:
+        - documentation
+    - title: Other Changes
+      labels:
+        - "*"

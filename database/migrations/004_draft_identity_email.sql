@@ -1,0 +1,2 @@
+ALTER TABLE drafts
+    ADD COLUMN IF NOT EXISTS identity_email VARCHAR(320);

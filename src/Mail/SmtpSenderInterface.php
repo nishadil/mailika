@@ -20,4 +20,6 @@ interface SmtpSenderInterface
         string $htmlBody,
         array $attachments = [],
     ): void;
+
+    public function sendEnvelope(MailboxCredentials $credentials, SendEnvelope $envelope): void;
 }

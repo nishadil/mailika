@@ -25,4 +25,14 @@ final readonly class Connection
             ],
         );
     }
+
+    public function driverAvailable(): bool
+    {
+        $driver = strstr($this->config->string('database.dsn'), ':', true);
+        if (!is_string($driver) || $driver === '') {
+            return false;
+        }
+
+        return in_array(strtolower($driver), PDO::getAvailableDrivers(), true);
+    }
 }

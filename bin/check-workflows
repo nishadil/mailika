@@ -1,0 +1,227 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+define('MAILIKA_ROOT', dirname(__DIR__));
+
+$workflowDir = MAILIKA_ROOT . '/.github/workflows';
+$files = glob($workflowDir . '/*.{yml,yaml}', GLOB_BRACE);
+$files = is_array($files) ? $files : [];
+sort($files);
+
+$violations = [];
+if ($files === []) {
+    $violations[] = 'no GitHub Actions workflow files found';
+}
+
+foreach ($files as $file) {
+    checkWorkflow($file, $violations);
+}
+
+checkReleaseGateInventory($violations);
+
+if ($violations !== []) {
+    fwrite(STDERR, "Workflow hardening check failed:\n");
+    foreach ($violations as $violation) {
+        fwrite(STDERR, ' - ' . $violation . "\n");
+    }
+    exit(1);
+}
+
+fwrite(STDOUT, "Workflow hardening check passed.\n");
+
+/**
+ * @param list<string> $violations
+ */
+function checkWorkflow(string $file, array &$violations): void
+{
+    $relative = relativePath($file);
+    $content = file_get_contents($file);
+    if ($content === false || $content === '') {
+        $violations[] = $relative . ' is empty or unreadable';
+        return;
+    }
+
+    if (preg_match('/^permissions:\s*$/m', $content) !== 1) {
+        $violations[] = $relative . ' must declare top-level permissions';
+    }
+
+    if (preg_match('/^concurrency:\s*$/m', $content) !== 1) {
+        $violations[] = $relative . ' must declare top-level concurrency';
+    }
+
+    if (preg_match('/^\s*pull_request_target:/m', $content) === 1) {
+        $violations[] = $relative . ' must not use pull_request_target';
+    }
+
+    if (preg_match('/^\s*permissions:\s*(write-all|read-all)\s*$/mi', $content) === 1) {
+        $violations[] = $relative . ' must use explicit least-privilege permissions, not read-all/write-all';
+    }
+
+    if (preg_match('/(?:curl|wget)\b[^\n|]*\|\s*(?:sh|bash)\b/i', $content) === 1) {
+        $violations[] = $relative . ' must not pipe downloaded scripts directly into a shell';
+    }
+
+    foreach (actionReferences($content) as $reference) {
+        if (!str_contains($reference, '@')) {
+            $violations[] = $relative . ' action reference "' . $reference . '" must include an explicit version';
+            continue;
+        }
+
+        [, $version] = explode('@', $reference, 2);
+        if (preg_match('/^(main|master|HEAD|latest)$/i', $version) === 1) {
+            $violations[] = $relative . ' action reference "' . $reference . '" must not use a moving branch';
+        }
+    }
+
+    $jobs = jobs($content);
+    if ($jobs === []) {
+        $violations[] = $relative . ' must define at least one job';
+        return;
+    }
+
+    foreach ($jobs as $name => $body) {
+        if (preg_match('/^\s{4}runs-on:\s*\S+/m', $body) !== 1) {
+            $violations[] = $relative . ' job "' . $name . '" must declare runs-on';
+        }
+
+        if (preg_match('/^\s{4}timeout-minutes:\s*[1-9][0-9]*\s*$/m', $body) !== 1) {
+            $violations[] = $relative . ' job "' . $name . '" must declare timeout-minutes';
+        }
+    }
+}
+
+/**
+ * @param list<string> $violations
+ */
+function checkReleaseGateInventory(array &$violations): void
+{
+    requireWorkflowContains('.github/workflows/ci.yml', [
+        'branches: ["main", "development"]',
+        'composer check',
+        'composer test:external-mail',
+        'composer test:external-sieve',
+        'npm run check',
+        'docker build -t ghcr.io/nishadil/mailika:ci .',
+        'aquasecurity/trivy-action@0.24.0',
+        'severity: CRITICAL,HIGH',
+    ], $violations);
+
+    requireWorkflowContains('.github/workflows/codeql.yml', [
+        'branches: ["main", "development"]',
+        'schedule:',
+        'javascript-typescript',
+        'php',
+        'github/codeql-action/init@v3',
+        'github/codeql-action/analyze@v3',
+    ], $violations);
+
+    requireWorkflowContains('.github/workflows/dependency-review.yml', [
+        'pull_request:',
+        'actions/dependency-review-action@v4',
+        'fail-on-severity: high',
+    ], $violations);
+
+    requireWorkflowContains('.github/workflows/publish-container.yml', [
+        'branches: ["main"]',
+        'tags: ["v*"]',
+        'ghcr.io/nishadil/mailika',
+        'aquasecurity/trivy-action@0.24.0',
+        'docker/build-push-action@v6',
+        'sbom: true',
+        'provenance: mode=max',
+    ], $violations);
+}
+
+/**
+ * @param list<string> $needles
+ * @param list<string> $violations
+ */
+function requireWorkflowContains(string $path, array $needles, array &$violations): void
+{
+    $file = MAILIKA_ROOT . '/' . $path;
+    $content = file_get_contents($file);
+    if ($content === false || $content === '') {
+        $violations[] = $path . ' is empty or unreadable';
+        return;
+    }
+
+    foreach ($needles as $needle) {
+        if (!str_contains($content, $needle)) {
+            $violations[] = $path . ' must include "' . $needle . '"';
+        }
+    }
+}
+
+/**
+ * @return list<string>
+ */
+function actionReferences(string $content): array
+{
+    preg_match_all('/^\s*(?:-\s+)?uses:\s+([^\s#]+)\s*$/m', $content, $matches);
+
+    $references = [];
+    foreach ($matches[1] ?? [] as $reference) {
+        $reference = trim((string) $reference, '"\'');
+        if ($reference === '' || str_starts_with($reference, './')) {
+            continue;
+        }
+
+        $references[] = $reference;
+    }
+
+    return $references;
+}
+
+/**
+ * @return array<string, string>
+ */
+function jobs(string $content): array
+{
+    $lines = preg_split('/\R/', $content) ?: [];
+    $jobs = [];
+    $inJobs = false;
+    $current = null;
+    $buffer = [];
+
+    foreach ($lines as $line) {
+        if (!$inJobs) {
+            if ($line === 'jobs:') {
+                $inJobs = true;
+            }
+
+            continue;
+        }
+
+        if (preg_match('/^[A-Za-z0-9_-]+:/', $line) === 1) {
+            break;
+        }
+
+        if (preg_match('/^  ([A-Za-z0-9_-]+):\s*$/', $line, $matches) === 1) {
+            if ($current !== null) {
+                $jobs[$current] = implode("\n", $buffer);
+            }
+
+            $current = $matches[1];
+            $buffer = [$line];
+            continue;
+        }
+
+        if ($current !== null) {
+            $buffer[] = $line;
+        }
+    }
+
+    if ($current !== null) {
+        $jobs[$current] = implode("\n", $buffer);
+    }
+
+    return $jobs;
+}
+
+function relativePath(string $file): string
+{
+    $prefix = MAILIKA_ROOT . '/';
+    return str_starts_with($file, $prefix) ? substr($file, strlen($prefix)) : $file;
+}

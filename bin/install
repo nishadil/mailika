@@ -1,0 +1,31 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use Dotenv\Dotenv;
+use Mailika\Config\Config;
+use Mailika\Install\Preflight;
+
+$root = dirname(__DIR__);
+
+require $root . '/vendor/autoload.php';
+
+if (is_file($root . '/.env')) {
+    Dotenv::createImmutable($root)->safeLoad();
+}
+
+$issues = (new Preflight($root, Config::fromEnvironment($root)))->installIssues();
+if ($issues !== []) {
+    fwrite(STDERR, 'Install preflight failed:' . PHP_EOL);
+    foreach ($issues as $issue) {
+        fwrite(STDERR, '- ' . $issue . PHP_EOL);
+    }
+
+    exit(1);
+}
+
+fwrite(STDOUT, 'Install preflight passed.' . PHP_EOL);
+
+passthru(PHP_BINARY . ' ' . escapeshellarg($root . '/bin/migrate'), $code);
+exit($code);

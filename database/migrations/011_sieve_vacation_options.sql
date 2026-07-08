@@ -1,0 +1,2 @@
+ALTER TABLE sieve_rules ADD COLUMN IF NOT EXISTS vacation_days INTEGER;
+ALTER TABLE sieve_rules ADD COLUMN IF NOT EXISTS vacation_subject VARCHAR(255);

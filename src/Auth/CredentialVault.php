@@ -10,45 +10,75 @@ use RuntimeException;
 final readonly class CredentialVault
 {
     private const SESSION_KEY = 'mailika_mailbox';
+    private const SESSION_VERSION = 2;
 
     private string $key;
+    private int $lifetimeSeconds;
 
     public function __construct(Config $config)
     {
         $this->key = self::parseKey($config->string('app.key'));
+        $this->lifetimeSeconds = max(1, $config->int('session.lifetime_seconds', 1800));
     }
 
     public function store(MailboxCredentials $credentials): void
     {
-        $_SESSION[self::SESSION_KEY] = [
+        $now = time();
+        $payload = [
             'email' => $credentials->email,
-            'password' => $this->sealString($credentials->password),
+            'password' => $credentials->password,
             'imap_host' => $credentials->imapHost,
             'imap_port' => $credentials->imapPort,
             'imap_tls' => $credentials->imapTls,
             'smtp_host' => $credentials->smtpHost,
             'smtp_port' => $credentials->smtpPort,
             'smtp_tls' => $credentials->smtpTls,
+            'issued_at' => $now,
+            'expires_at' => $now + $this->lifetimeSeconds,
+        ];
+
+        $_SESSION[self::SESSION_KEY] = [
+            'version' => self::SESSION_VERSION,
+            'payload' => $this->sealPayload($payload),
+            'issued_at' => $now,
+            'expires_at' => $payload['expires_at'],
         ];
     }
 
     public function current(): ?MailboxCredentials
     {
-        $payload = $_SESSION[self::SESSION_KEY] ?? null;
+        $session = $_SESSION ?? [];
+        $payload = $session[self::SESSION_KEY] ?? null;
         if (!is_array($payload)) {
             return null;
         }
 
-        return new MailboxCredentials(
-            (string) ($payload['email'] ?? ''),
-            $this->openString((string) ($payload['password'] ?? '')),
-            (string) ($payload['imap_host'] ?? ''),
-            (int) ($payload['imap_port'] ?? 993),
-            (bool) ($payload['imap_tls'] ?? true),
-            (string) ($payload['smtp_host'] ?? ''),
-            (int) ($payload['smtp_port'] ?? 587),
-            (string) ($payload['smtp_tls'] ?? 'starttls'),
-        );
+        if (!$this->payloadFresh($payload)) {
+            $this->clear();
+            return null;
+        }
+
+        try {
+            $payload = $this->openPayload((string) ($payload['payload'] ?? ''));
+            if (!$this->payloadFresh($payload)) {
+                $this->clear();
+                return null;
+            }
+
+            return new MailboxCredentials(
+                (string) ($payload['email'] ?? ''),
+                (string) ($payload['password'] ?? ''),
+                (string) ($payload['imap_host'] ?? ''),
+                (int) ($payload['imap_port'] ?? 993),
+                (bool) ($payload['imap_tls'] ?? true),
+                (string) ($payload['smtp_host'] ?? ''),
+                (int) ($payload['smtp_port'] ?? 587),
+                (string) ($payload['smtp_tls'] ?? 'starttls'),
+            );
+        } catch (RuntimeException) {
+            $this->clear();
+            return null;
+        }
     }
 
     public function clear(): void
@@ -59,6 +89,27 @@ final readonly class CredentialVault
     public function isAuthenticated(): bool
     {
         return $this->current() !== null;
+    }
+
+    /**
+     * @param array<string, scalar|null> $payload
+     */
+    private function sealPayload(array $payload): string
+    {
+        return $this->sealString(json_encode($payload, JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function openPayload(string $sealed): array
+    {
+        $decoded = json_decode($this->openString($sealed), true);
+        if (!is_array($decoded)) {
+            throw new RuntimeException('Invalid sealed credential payload.');
+        }
+
+        return $decoded;
     }
 
     private function sealString(string $value): string
@@ -84,6 +135,15 @@ final readonly class CredentialVault
         }
 
         return $plaintext;
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function payloadFresh(array $payload): bool
+    {
+        $expiresAt = $payload['expires_at'] ?? null;
+        return is_numeric($expiresAt) && (int) $expiresAt >= time();
     }
 
     private static function parseKey(string $raw): string

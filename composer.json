@@ -13,18 +13,23 @@
     "php": "^8.3",
     "ext-ctype": "*",
     "ext-dom": "*",
+    "ext-fileinfo": "*",
     "ext-filter": "*",
+    "ext-iconv": "*",
     "ext-json": "*",
+    "ext-libxml": "*",
     "ext-mbstring": "*",
     "ext-openssl": "*",
     "ext-pdo": "*",
     "ext-sodium": "*",
+    "ext-zip": "*",
     "ezyang/htmlpurifier": "^4.17",
     "monolog/monolog": "^3.0",
     "psr/log": "^3.0",
     "symfony/mailer": "^7.0",
     "symfony/mime": "^7.0",
-    "vlucas/phpdotenv": "^5.6"
+    "vlucas/phpdotenv": "^5.6",
+    "webklex/php-imap": "^6.2"
   },
   "require-dev": {
     "phpstan/phpstan": "^2.0",
@@ -32,7 +37,7 @@
     "squizlabs/php_codesniffer": "^3.10"
   },
   "suggest": {
-    "ext-imap": "Required by the built-in PhpImapMailboxClient adapter for production IMAP connectivity.",
+    "ext-imap": "Optional fallback for the legacy PhpImapMailboxClient adapter. The primary adapter does not require it.",
     "ext-pdo_pgsql": "Recommended production database driver.",
     "ext-redis": "Recommended for shared cache, rate limits, and session storage in multi-node deployments."
   },
@@ -48,12 +53,29 @@
   },
   "scripts": {
     "test": "phpunit",
+    "validate-config": "composer validate --strict --no-check-publish",
+    "dependency-audit": "composer audit",
     "analyse": "phpstan analyse --memory-limit=1G",
     "cs": "phpcs",
+    "fixtures:check": "php bin/check-external-fixtures",
+    "license-check": "php bin/check-licenses",
+    "release-evidence": "php bin/release-evidence",
+    "validate-release-evidence": "php bin/validate-release-evidence",
+    "secret-scan": "php bin/check-secrets",
+    "workflow-check": "php bin/check-workflows",
+    "metadata-check": "php bin/check-release-metadata",
+    "test:external-mail": "MAILIKA_EXTERNAL_MAIL_TESTS=1 phpunit --filter ExternalMailFixtureTest",
+    "test:external-sieve": "MAILIKA_EXTERNAL_SIEVE_TESTS=1 phpunit --filter ExternalManageSieveFixtureTest",
     "check": [
+      "@validate-config",
+      "@dependency-audit",
       "@cs",
       "@analyse",
-      "@test"
+      "@test",
+      "@license-check",
+      "@secret-scan",
+      "@workflow-check",
+      "@metadata-check"
     ]
   },
   "config": {

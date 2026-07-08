@@ -4,6 +4,8 @@
 /coverage
 /node_modules
 /public/build
+/public/storage
+/test-results
 /storage/cache/*
 /storage/logs/*
 /storage/sessions/*

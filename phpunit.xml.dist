@@ -4,6 +4,15 @@
     <testsuite name="Unit">
       <directory>tests/Unit</directory>
     </testsuite>
+    <testsuite name="Security">
+      <directory>tests/Security</directory>
+    </testsuite>
+    <testsuite name="Integration">
+      <directory>tests/Integration</directory>
+    </testsuite>
+    <testsuite name="Performance">
+      <directory>tests/Performance</directory>
+    </testsuite>
   </testsuites>
   <php>
     <env name="APP_ENV" value="testing"/>

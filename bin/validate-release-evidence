@@ -1,0 +1,232 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+if (($argv[1] ?? '') === '' || in_array($argv[1] ?? '', ['-h', '--help'], true)) {
+    fwrite(STDERR, "Usage: php bin/validate-release-evidence release-evidence-vX.Y.Z.md\n");
+    exit(2);
+}
+
+$path = $argv[1];
+$content = file_get_contents($path);
+if ($content === false || $content === '') {
+    fwrite(STDERR, "Release evidence file is missing, empty, or unreadable: {$path}\n");
+    exit(1);
+}
+
+$violations = [];
+
+if (!str_contains($content, '# Mailika Release Evidence')) {
+    $violations[] = 'missing "# Mailika Release Evidence" heading';
+}
+
+if (preg_match('/\bTODO\b/i', $content) === 1) {
+    $violations[] = 'must not contain TODO placeholders';
+}
+
+if (preg_match('/^\s*-\s+\[\s\]/m', $content) === 1) {
+    $violations[] = 'must not contain unchecked checklist items';
+}
+
+checkSecretPatterns($content, $violations);
+checkFields($content, $violations);
+checkRequiredEvidence($content, $violations);
+checkRequiredSections($content, $violations);
+
+if ($violations !== []) {
+    fwrite(STDERR, "Release evidence validation failed:\n");
+    foreach ($violations as $violation) {
+        fwrite(STDERR, ' - ' . $violation . "\n");
+    }
+    exit(1);
+}
+
+fwrite(STDOUT, "Release evidence validation passed.\n");
+
+/**
+ * @param list<string> $violations
+ */
+function checkFields(string $content, array &$violations): void
+{
+    $fields = markdownTable($content, 'Field', 'Value');
+    foreach (['Release tag', 'Commit SHA', 'Branch', 'Generated at'] as $field) {
+        if (!array_key_exists($field, $fields)) {
+            $violations[] = 'field table must include "' . $field . '"';
+        }
+    }
+
+    $tag = $fields['Release tag'] ?? '';
+    if (preg_match('/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/', $tag) !== 1) {
+        $violations[] = 'release tag must be a concrete vX.Y.Z semantic version tag';
+    }
+
+    $sha = $fields['Commit SHA'] ?? '';
+    if (preg_match('/^[a-f0-9]{40}$/i', $sha) !== 1) {
+        $violations[] = 'commit SHA must be a full 40-character Git SHA';
+    }
+
+    $branch = trim($fields['Branch'] ?? '');
+    if ($branch === '' || preg_match('/^(?:TODO|vX\.Y\.Z)$/i', $branch) === 1) {
+        $violations[] = 'branch must be a concrete Git branch name';
+    }
+
+    $generatedAt = $fields['Generated at'] ?? '';
+    if (preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/', $generatedAt) !== 1) {
+        $violations[] = 'generated-at timestamp must use UTC ISO-8601 format';
+    }
+}
+
+/**
+ * @param list<string> $violations
+ */
+function checkRequiredEvidence(string $content, array &$violations): void
+{
+    $rows = markdownTable($content, 'Evidence', 'Link Or Result');
+    $required = [
+        'CI run on `main`',
+        'CodeQL run',
+        'Dependency review',
+        'Container scan',
+        'SBOM/provenance',
+        'Migration notes',
+        'Threat model review',
+        'Data handling review',
+        'Accessibility review',
+        'Changelog section',
+        'Compatibility matrix',
+        'Backup/restore validation',
+        'External mail fixture or provider compatibility',
+        'External Sieve compatibility',
+        'Residual risks',
+    ];
+
+    foreach ($required as $name) {
+        if (!array_key_exists($name, $rows)) {
+            $violations[] = 'required evidence table must include "' . $name . '"';
+            continue;
+        }
+
+        $value = trim($rows[$name]);
+        if ($value === '') {
+            $violations[] = '"' . $name . '" evidence must not be empty';
+            continue;
+        }
+
+        if (preg_match('/^N\/A\b/i', $value) === 1 && !in_array($name, nillableEvidence(), true)) {
+            $violations[] = '"' . $name . '" cannot be marked N/A';
+        }
+
+        if (preg_match('/^N\/A\s*$/i', $value) === 1) {
+            $violations[] = '"' . $name . '" N/A evidence must include a reason';
+        }
+    }
+
+    $residualRisk = trim($rows['Residual risks'] ?? '');
+    if ($residualRisk !== 'None' && !str_contains(strtolower($residualRisk), 'owner')) {
+        $violations[] = 'residual risks must be "None" or include an owner';
+    }
+}
+
+/**
+ * @param list<string> $violations
+ */
+function checkRequiredSections(string $content, array &$violations): void
+{
+    foreach (['## Required Evidence', '## Local Gates', '## Upgrade And Restore', '## Release Notes'] as $heading) {
+        if (!str_contains($content, $heading)) {
+            $violations[] = 'missing section ' . $heading;
+        }
+    }
+
+    foreach (
+        [
+            'User-facing changes:',
+            'Security changes:',
+            'Migration or operator notes:',
+            'Deferred or known limitations:',
+        ] as $label
+    ) {
+        if (!str_contains($content, $label)) {
+            $violations[] = 'release notes must include "' . $label . '"';
+        }
+    }
+}
+
+/**
+ * @param list<string> $violations
+ */
+function checkSecretPatterns(string $content, array &$violations): void
+{
+    $patterns = [
+        'private-key-block' => '/-----BEGIN (?:RSA |DSA |EC |OPENSSH )?'
+            . 'PRIVATE KEY-----|-----BEGIN PGP PRIVATE '
+            . 'KEY BLOCK-----/',
+        'aws-access-key' => '/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/',
+        'github-token' => '/\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{36,}\b|\bgithub_pat_[A-Za-z0-9_]{80,}\b/',
+        'openai-key' => '/\bsk-(?:proj-)?[A-Za-z0-9_-]{32,}\b/',
+        'stripe-live-secret' => '/\bsk_live_[0-9A-Za-z]{24,}\b/',
+    ];
+
+    foreach ($patterns as $name => $pattern) {
+        if (preg_match($pattern, $content) === 1) {
+            $violations[] = 'potential secret pattern found: ' . $name;
+        }
+    }
+}
+
+/**
+ * @return array<string, string>
+ */
+function markdownTable(string $content, string $firstHeader, string $secondHeader): array
+{
+    $lines = preg_split('/\R/', $content) ?: [];
+    $rowCount = count($lines);
+    for ($i = 0; $i < $rowCount; $i++) {
+        $cells = tableCells($lines[$i]);
+        if (($cells[0] ?? '') !== $firstHeader || ($cells[1] ?? '') !== $secondHeader) {
+            continue;
+        }
+
+        $rows = [];
+        for ($j = $i + 2; $j < $rowCount; $j++) {
+            $row = tableCells($lines[$j]);
+            if (count($row) < 2) {
+                break;
+            }
+
+            $rows[$row[0]] = $row[1];
+        }
+
+        return $rows;
+    }
+
+    return [];
+}
+
+/**
+ * @return list<string>
+ */
+function tableCells(string $line): array
+{
+    $line = trim($line);
+    if (!str_starts_with($line, '|') || !str_ends_with($line, '|')) {
+        return [];
+    }
+
+    return array_map(
+        static fn (string $cell): string => trim($cell),
+        explode('|', trim($line, '|')),
+    );
+}
+
+/**
+ * @return list<string>
+ */
+function nillableEvidence(): array
+{
+    return [
+        'Dependency review',
+        'External Sieve compatibility',
+    ];
+}

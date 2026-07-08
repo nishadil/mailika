@@ -18,6 +18,9 @@ final readonly class Message
         public string $htmlBody,
         public string $textBody,
         public array $attachments = [],
+        public string $cc = '',
+        public string $replyTo = '',
+        public ?string $messageId = null,
     ) {
     }
 }

@@ -22,14 +22,40 @@ final readonly class SecurityHeaders
             ->withHeader('Referrer-Policy', 'same-origin')
             ->withHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()')
             ->withHeader('Cross-Origin-Opener-Policy', 'same-origin')
-            ->withHeader('Cross-Origin-Resource-Policy', 'same-origin')
-            ->withHeader('Content-Security-Policy', $this->contentSecurityPolicy());
+            ->withHeader('Cross-Origin-Resource-Policy', 'same-origin');
 
-        if ($this->config->isProduction() && $request->isSecure()) {
+        if (!$this->hasHeader($response, 'Cache-Control')) {
+            $response = $response->withHeader('Cache-Control', 'no-store');
+
+            if (!$this->hasHeader($response, 'Pragma')) {
+                $response = $response->withHeader('Pragma', 'no-cache');
+            }
+
+            if (!$this->hasHeader($response, 'Expires')) {
+                $response = $response->withHeader('Expires', '0');
+            }
+        }
+
+        if (!$this->hasHeader($response, 'Content-Security-Policy')) {
+            $response = $response->withHeader('Content-Security-Policy', $this->contentSecurityPolicy());
+        }
+
+        if ($this->config->isProduction() && $request->isSecure($this->config->stringList('http.trusted_proxies'))) {
             $response = $response->withHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
         }
 
         return $response;
+    }
+
+    private function hasHeader(Response $response, string $name): bool
+    {
+        foreach (array_keys($response->headers()) as $headerName) {
+            if (strcasecmp($headerName, $name) === 0) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function contentSecurityPolicy(): string

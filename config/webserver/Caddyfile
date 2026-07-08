@@ -1,0 +1,15 @@
+mailika.example.test {
+    root * /var/www/html/public
+    encode zstd gzip
+
+    @private path /storage* /vendor* /src* /templates* /tests* /database* /config* /docs* /bin*
+    respond @private 404
+
+    @sensitive {
+        path */.* *.log *.env composer.json composer.lock package.json package-lock.json
+    }
+    respond @sensitive 404
+
+    php_fastcgi php-fpm:9000
+    file_server
+}

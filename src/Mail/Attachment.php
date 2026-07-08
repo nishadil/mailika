@@ -10,6 +10,9 @@ final readonly class Attachment
         public string $filename,
         public string $contentType,
         public int $bytes,
+        public ?string $id = null,
+        public bool $inline = false,
+        public ?string $contentId = null,
     ) {
     }
 }

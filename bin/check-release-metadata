@@ -1,0 +1,263 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+define('MAILIKA_ROOT', dirname(__DIR__));
+
+$violations = [];
+
+requireFiles([
+    'LICENSE',
+    'README.md',
+    'SECURITY.md',
+    'CONTRIBUTING.md',
+    'CODE_OF_CONDUCT.md',
+    'SUPPORT.md',
+    'CHANGELOG.md',
+    'composer.json',
+    'package.json',
+    'Dockerfile',
+    'docker-compose.yml',
+    'bin/check-external-fixtures',
+    'bin/validate-release-evidence',
+    'public/index.php',
+    'public/.htaccess',
+    'config/webserver/Caddyfile',
+    'config/webserver/nginx-mailika.conf',
+    'docs/ACCESSIBILITY.md',
+    'docs/ASVS_RELEASE_GATE.md',
+    'docs/BACKUP_RESTORE.md',
+    'docs/COMPATIBILITY.md',
+    'docs/DATA_HANDLING.md',
+    'docs/OPERATIONS.md',
+    'docs/RELEASE.md',
+    'docs/SECURITY_BASELINE.md',
+    'docs/THREAT_MODEL.md',
+    '.github/CODEOWNERS',
+    '.github/PULL_REQUEST_TEMPLATE.md',
+    '.github/dependabot.yml',
+    '.github/release.yml',
+    '.github/ISSUE_TEMPLATE/bug_report.yml',
+    '.github/ISSUE_TEMPLATE/config.yml',
+    '.github/ISSUE_TEMPLATE/feature_request.yml',
+    '.github/ISSUE_TEMPLATE/provider_compatibility.yml',
+    '.github/workflows/ci.yml',
+    '.github/workflows/codeql.yml',
+    '.github/workflows/dependency-review.yml',
+    '.github/workflows/publish-container.yml',
+], $violations);
+
+requireContains('LICENSE', ['GNU GENERAL PUBLIC LICENSE', 'Version 3'], $violations);
+requireContains('README.md', [
+    'https://mailika.com',
+    'https://github.com/nishadil/mailika',
+    'opensource@nishadil.dev',
+    'GPL-3.0-only',
+    'public/build/',
+    'generated Vite assets',
+], $violations);
+requireContains('SECURITY.md', ['opensource@nishadil.dev'], $violations);
+requireContains('SUPPORT.md', ['opensource@nishadil.dev'], $violations);
+requireContains('.github/ISSUE_TEMPLATE/config.yml', [
+    'mailto:opensource@nishadil.dev',
+    'https://mailika.com',
+], $violations);
+requireContains('.gitignore', ['/public/build', '/public/storage'], $violations);
+requireContains('.dockerignore', [
+    '.env',
+    'node_modules',
+    'vendor',
+    'public/build',
+    'public/storage',
+], $violations);
+
+checkComposer($violations);
+checkPackage($violations);
+checkPublicTree($violations);
+
+if ($violations !== []) {
+    fwrite(STDERR, "Release metadata check failed:\n");
+    foreach ($violations as $violation) {
+        fwrite(STDERR, ' - ' . $violation . "\n");
+    }
+    exit(1);
+}
+
+fwrite(STDOUT, "Release metadata check passed.\n");
+
+/**
+ * @param list<string> $paths
+ * @param list<string> $violations
+ */
+function requireFiles(array $paths, array &$violations): void
+{
+    foreach ($paths as $path) {
+        $fullPath = MAILIKA_ROOT . '/' . $path;
+        if (!is_file($fullPath)) {
+            $violations[] = $path . ' is missing';
+            continue;
+        }
+
+        if (filesize($fullPath) === 0) {
+            $violations[] = $path . ' is empty';
+        }
+    }
+}
+
+/**
+ * @param list<string> $needles
+ * @param list<string> $violations
+ */
+function requireContains(string $path, array $needles, array &$violations): void
+{
+    $content = fileContents($path);
+    if ($content === null) {
+        $violations[] = $path . ' is missing or unreadable';
+        return;
+    }
+
+    foreach ($needles as $needle) {
+        if (!str_contains($content, $needle)) {
+            $violations[] = $path . ' must mention "' . $needle . '"';
+        }
+    }
+}
+
+/**
+ * @param list<string> $violations
+ */
+function checkComposer(array &$violations): void
+{
+    $composer = jsonFile('composer.json', $violations);
+    if ($composer === null) {
+        return;
+    }
+
+    requireJsonValue($composer, 'composer.json', ['name'], 'nishadil/mailika', $violations);
+    requireJsonValue($composer, 'composer.json', ['license'], 'GPL-3.0-only', $violations);
+    requireJsonValue($composer, 'composer.json', ['homepage'], 'https://mailika.com', $violations);
+    requireJsonValue($composer, 'composer.json', ['support', 'email'], 'opensource@nishadil.dev', $violations);
+    requireJsonValue(
+        $composer,
+        'composer.json',
+        ['support', 'source'],
+        'https://github.com/nishadil/mailika',
+        $violations
+    );
+
+    $scripts = $composer['scripts'] ?? null;
+    if (!is_array($scripts)) {
+        $violations[] = 'composer.json must define scripts';
+        return;
+    }
+
+    foreach (
+        [
+            'fixtures:check',
+            'license-check',
+            'secret-scan',
+            'workflow-check',
+            'metadata-check',
+            'validate-release-evidence',
+        ] as $script
+    ) {
+        if (!array_key_exists($script, $scripts)) {
+            $violations[] = 'composer.json scripts must include ' . $script;
+        }
+    }
+
+    $check = $scripts['check'] ?? null;
+    if (!is_array($check)) {
+        $violations[] = 'composer.json scripts.check must be an array';
+        return;
+    }
+
+    foreach (['@license-check', '@secret-scan', '@workflow-check', '@metadata-check'] as $gate) {
+        if (!in_array($gate, $check, true)) {
+            $violations[] = 'composer.json scripts.check must include ' . $gate;
+        }
+    }
+}
+
+/**
+ * @param list<string> $violations
+ */
+function checkPackage(array &$violations): void
+{
+    $package = jsonFile('package.json', $violations);
+    if ($package === null) {
+        return;
+    }
+
+    requireJsonValue($package, 'package.json', ['license'], 'GPL-3.0-only', $violations);
+    requireJsonValue($package, 'package.json', ['homepage'], 'https://mailika.com', $violations);
+    requireJsonValue($package, 'package.json', ['repository', 'url'], 'https://github.com/nishadil/mailika.git', $violations);
+}
+
+/**
+ * @param list<string> $violations
+ */
+function checkPublicTree(array &$violations): void
+{
+    foreach (['storage', 'logs', 'sessions', 'uploads', 'cache'] as $name) {
+        if (is_dir(MAILIKA_ROOT . '/public/' . $name)) {
+            $violations[] = 'public/' . $name . ' must not exist';
+        }
+    }
+}
+
+/**
+ * @param list<string> $violations
+ * @return array<string, mixed>|null
+ */
+function jsonFile(string $path, array &$violations): ?array
+{
+    $content = fileContents($path);
+    if ($content === null) {
+        $violations[] = $path . ' is missing or unreadable';
+        return null;
+    }
+
+    try {
+        $decoded = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
+    } catch (JsonException $exception) {
+        $violations[] = $path . ' is invalid JSON: ' . $exception->getMessage();
+        return null;
+    }
+
+    if (!is_array($decoded)) {
+        $violations[] = $path . ' must decode to a JSON object';
+        return null;
+    }
+
+    return $decoded;
+}
+
+/**
+ * @param array<string, mixed> $json
+ * @param list<string> $path
+ * @param list<string> $violations
+ */
+function requireJsonValue(array $json, string $file, array $path, string $expected, array &$violations): void
+{
+    $value = $json;
+    foreach ($path as $segment) {
+        if (!is_array($value) || !array_key_exists($segment, $value)) {
+            $violations[] = $file . ' must define ' . implode('.', $path);
+            return;
+        }
+
+        $value = $value[$segment];
+    }
+
+    if ($value !== $expected) {
+        $violations[] = $file . ' ' . implode('.', $path) . ' must be ' . $expected;
+    }
+}
+
+function fileContents(string $path): ?string
+{
+    $content = file_get_contents(MAILIKA_ROOT . '/' . $path);
+    return is_string($content) ? $content : null;
+}

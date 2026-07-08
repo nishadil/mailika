@@ -10,6 +10,9 @@ final readonly class Preferences
         public string $locale = 'en',
         public string $timezone = 'UTC',
         public bool $remoteImages = false,
+        public string $theme = 'system',
+        public bool $threadedListing = true,
+        public int $messagesPerPage = 50,
     ) {
     }
 }

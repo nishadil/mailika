@@ -35,7 +35,8 @@ jobs:
           tags: mailika:scan
 
       - name: Scan image
-        uses: aquasecurity/trivy-action@0.24.0
+        # v0.35.0 safe Trivy action commit after GHSA-69fq-xp46-6x23.
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
         with:
           image-ref: mailika:scan
           format: table

@@ -1,0 +1,27 @@
+name: Validate main PR source
+
+on:
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  source-branch:
+    name: source-branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require same-repo development branch
+        run: |
+          if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
+            echo "::error::PRs into main must come from this repository, not a fork."
+            exit 1
+          fi
+
+          if [ "${{ github.event.pull_request.head.ref }}" != "development" ]; then
+            echo "::error::Only the development branch may open PRs into main."
+            exit 1
+          fi

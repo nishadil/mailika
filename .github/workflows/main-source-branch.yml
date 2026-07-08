@@ -9,10 +9,15 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: main-source-branch-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   source-branch:
     name: source-branch
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Require same-repo development branch
         run: |

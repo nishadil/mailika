@@ -104,7 +104,7 @@ function checkReleaseGateInventory(array &$violations): void
         'composer test:external-sieve',
         'npm run check',
         'docker build -t ghcr.io/nishadil/mailika:ci .',
-        'aquasecurity/trivy-action@0.24.0',
+        'aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1',
         'severity: CRITICAL,HIGH',
     ], $violations);
 
@@ -127,7 +127,7 @@ function checkReleaseGateInventory(array &$violations): void
         'branches: ["main"]',
         'tags: ["v*"]',
         'ghcr.io/nishadil/mailika',
-        'aquasecurity/trivy-action@0.24.0',
+        'aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1',
         'docker/build-push-action@v6',
         'sbom: true',
         'provenance: mode=max',

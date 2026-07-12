@@ -23,7 +23,7 @@ jobs:
           php-version: "8.4"
           extensions: ctype, dom, fileinfo, filter, iconv, json, libxml, mbstring, openssl, pdo, sodium, zip
           coverage: none
-      - uses: ramsey/composer-install@v3
+      - uses: ramsey/composer-install@v4
       - run: composer check
 
   external-mail:
@@ -47,7 +47,7 @@ jobs:
           php-version: "8.4"
           extensions: ctype, dom, fileinfo, filter, iconv, json, libxml, mbstring, openssl, pdo, sodium, zip
           coverage: none
-      - uses: ramsey/composer-install@v3
+      - uses: ramsey/composer-install@v4
       - name: Wait for GreenMail
         run: |
           php -r '
@@ -77,7 +77,7 @@ jobs:
           php-version: "8.4"
           extensions: ctype, dom, fileinfo, filter, iconv, json, libxml, mbstring, openssl, pdo, sodium, zip
           coverage: none
-      - uses: ramsey/composer-install@v3
+      - uses: ramsey/composer-install@v4
       - name: Start ManageSieve fixture
         run: docker compose --profile sieve-fixtures up -d managesieve
       - name: Wait for ManageSieve
